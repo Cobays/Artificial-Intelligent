@@ -1,79 +1,63 @@
-# streamlit_app.py — Single-sentence CN→EN UI (best_model only)
-
-from __future__ import annotations
+# streamlit_app.py — simple, backend-agnostic UI
 import os, time
 import streamlit as st
+from translator import load_translator  # uses backend.json inside best_model/
 
-# Friendly message if torch / main.py isn't importable
+st.set_page_config(page_title="CN→EN Translator", page_icon="🌐", layout="centered")
+st.title("CN → EN Translator")
+
+RUN_DIR = os.environ.get("RUN_DIR", "run")  # e.g., runs/jen_marian
 try:
-    from main import Translator, DEFAULT_RUN_DIR
+    lr = load_translator(RUN_DIR, device="cpu")  # CPU by default; change to None to auto-pick GPU/CPU
+    st.caption(f"Loaded **[{lr.backend}]** from `{RUN_DIR}/best_model`")
 except Exception as e:
-    st.error(
-        "Failed to import `Translator` from `main.py`.\n\n"
-        "Make sure your repository has:\n"
-        "• main.py (the best_model-only version)\n"
-        "• requirements.txt (includes torch CPU wheel and streamlit)\n\n"
-        f"Import error:\n{e}"
-    )
+    st.error(f"Failed to load model from `{RUN_DIR}/best_model`.\n"
+             f"Set RUN_DIR env var or fix the folder. Details:\n\n{e}")
     st.stop()
 
-st.set_page_config(page_title="CN→EN Translator (best_model only)", page_icon="🌐", layout="centered")
+# --- Model type selection ---
+model_type = st.selectbox(
+    "Choose NLP Model Type",
+    ("SMT (IBM1)", "NMT (Transformer)", "Hybrid SMT-NMT Model"),
+    index=1  # Default to NMT
+)
 
-st.title("🇨🇳 ➜ 🇬🇧 CN → EN Translator")
-st.caption("Loads only from **RUN_DIR/best_model/**. No fallback. Single sentence only.")
+# Map model type to folder name
+model_folder_map = {
+    "SMT (IBM1)": "best_model_smt",
+    "NMT (Transformer)": "best_model_nmt",
+    "Hybrid SMT-NMT Model": "best_model_hybrid"
+}
+model_folder = model_folder_map[model_type]
+model_path = os.path.join(RUN_DIR, model_folder)
 
-# ---- Sidebar settings ----
-st.sidebar.header("Settings")
-run_dir = st.sidebar.text_input("Run directory (must contain best_model/)",
-                                value=os.environ.get("RUN_DIR", DEFAULT_RUN_DIR))
-force_cpu = st.sidebar.checkbox("Force CPU", value=False)
+if not os.path.isdir(model_path):
+    st.error(f"Model folder `{model_path}` not found. Please train or place the model first.")
+    st.stop()
 
-st.sidebar.subheader("Decoding")
-beams      = st.sidebar.slider("Beam size", 1, 8, 4, 1)
-max_new    = st.sidebar.slider("Max new tokens", 16, 256, 128, 8)
-no_repeat  = st.sidebar.slider("No-repeat n-gram size", 0, 5, 3, 1)
-len_pen    = st.sidebar.slider("Length penalty", -1.0, 2.0, 1.0, 0.1)
-
-# ---- Cache the translator (reloads if run_dir/force_cpu change) ----
-@st.cache_resource(show_spinner=True)
-def get_translator(run_dir: str, cpu: bool):
-    device = "cpu" if cpu else None
-    # Translator will raise FileNotFoundError if best_model/ is missing
-    return Translator(run_dir=run_dir, device=device)
-
-# Build/verify the translator once
 try:
-    translator = get_translator(run_dir, force_cpu)
-except FileNotFoundError as e:
-    st.error(
-        f"best_model not found or malformed.\n\n"
-        f"Expected folder: **{run_dir}/best_model/** with Hugging Face files (config.json, weights, tokenizer, ...).\n\n"
-        f"Details:\n{e}"
-    )
-    st.stop()
+    lr = load_translator(model_path, device="cpu")
+    st.caption(f"Loaded **[{lr.backend}]** from `{model_path}`")
 except Exception as e:
-    st.error(f"Failed to initialize Translator:\n{e}")
+    st.error(f"Failed to load model from `{model_path}`.\nDetails:\n\n{e}")
     st.stop()
 
-# ---- Single sentence box ----
-st.subheader("Translate a single Chinese sentence")
-cn_text = st.text_area("Chinese input", height=160, placeholder="输入中文句子…")
-
+cn = st.text_area("Chinese", height=160, placeholder="输入中文句子…")
 if st.button("Translate 🚀", type="primary"):
-    if not cn_text.strip():
+    if not cn.strip():
         st.warning("Please enter a sentence.")
     else:
         t0 = time.time()
-        out, info = translator.translate(
-            cn_text,
-            num_beams=beams,
-            max_new_tokens=max_new,
-            no_repeat_ngram_size=no_repeat,
-            length_penalty=len_pen,
+        out, info = lr.translator.translate(
+            cn,
+            num_beams=5,
+            max_new_tokens=128,
+            no_repeat_ngram_size=3,
+            length_penalty=1.0,
             return_info=True,
+            model_type=model_type
         )
-        st.markdown("**English translation**")
-        st.text_area("Output", out, height=160)
-        st.caption(f"{info} • elapsed={(time.time()-t0)*1000:.0f} ms")
-
-st.divider()
+        ms = (time.time() - t0) * 1000
+        st.markdown("**English**")
+        st.text_area("Output", out, height=160, key="output")
+        st.caption(f"{info} • ⏱️ {ms:.0f} ms")
