@@ -1,9 +1,0 @@
-{
-  "ibm1_s2t": {
-    "current_iter": 16,
-    "total_iters": 16,
-    "last_checkpoint": "./smt_runs/zh_en_pbsmt\\checkpoints\\ibm1_s2t_iter_016.json",
-    "updated_at": "2025-08-29T16:47:30",
-    "bleu": 0.048514
-  }
-}
