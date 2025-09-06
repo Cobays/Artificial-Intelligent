@@ -1,0 +1,2 @@
+system,bleu,chrf,precision,recall,f1,exact_acc
+SMT,23.5836,50.4849,0.5681,0.5736,0.5709,0.0126
